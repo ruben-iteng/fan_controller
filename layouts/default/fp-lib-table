@@ -14,4 +14,11 @@
         (options "")
         (descr "atopile: atopile footprints")
     )
+    (lib
+        (name "TestPoint")
+        (type "KiCad")
+        (uri "${KICAD9_FOOTPRINT_DIR}/TestPoint.pretty")
+        (options "")
+        (descr "Default lib test points")
+    )
 )
