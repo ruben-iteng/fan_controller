@@ -1,9 +1,16 @@
+name: Build project
 
-on: [push, pull_request]
+on:
+  push:
+    branches:
+    - main
+  pull_request:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Skip all jobs if PR is in draft
+    if: github.event.pull_request.draft == false
 
     steps:
       - uses: actions/checkout@v4
