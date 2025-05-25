@@ -48,8 +48,8 @@ module App:
 
     # connections
     usb_pd_power_sink.power ~ _vbus
-    _vbus ~> dcdc_converter ~> _5v
-    _5v ~> ldo.power_in; ldo.power_out ~ _3v3
+    _vbus ~ dcdc_converter.power_in; dcdc_converter.power_out ~ _5v
+    _5v ~ ldo.power_in; ldo.power_out ~ _3v3
 
     _5v ~ led_buffer.power
     _3v3 ~ mcu.power
