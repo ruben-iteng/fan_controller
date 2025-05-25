@@ -1,4 +1,123 @@
-"""Brand new atopile project!"""
+#pragma experiment("BRIDGE_CONNECT")
+#pragma experiment("FOR_LOOP")
+
+import ElectricPower
+import ElectricSignal
+import TestPoint
+import Resistor
+import Capacitor
+
+from "ruben-iteng/esp32c3/esp32_c3.ato" import ESP32_C3_MINI_driver
+from "ruben-iteng/logic/voltage_translation.ato" import SN74LVC2G34DBVRUMW_driver
+from "ruben-iteng/ldos/ldos.ato" import LDO_5V_to_3V3
+from "ruben-iteng/leds/addressable_leds.ato" import AddressableLED_driver, SK6812_5050_RGBW
+from "ruben-iteng/logos/faebryk.ato" import FaebrykLogo_8x9mm
+from "ruben-iteng/microchip-emc2101/microchip-emc2101.ato" import Microchip_EMC2101_driver
+from "ruben-iteng/connectors/fan_connectors.ato" import Fan_4p_Connector, Fan_Interface
+from "ruben-iteng/connectors/qwiic.ato" import QwiicHorizontal_driver
+from "ruben-iteng/usb/usb.ato" import USB_PD_Power_Sink
+from "ruben-iteng/dcdc-converters/monolithic_power_systems_inc-mpm3610.ato" import MONOLITHIC_POWER_SYSTEMS_INC_MPM3610_12Vin_5Vout_driver
+from "atopile/pin-headers/pin-headers.ato" import Male_2_54mm_1x2P_TH
+
 
 module App:
-    pass
+    """A simple controller for 4-pin PC fans with USB-PD as power input"""
+
+    # components
+    usb_pd_power_sink = new USB_PD_Power_Sink
+    dcdc_converter = new MONOLITHIC_POWER_SYSTEMS_INC_MPM3610_12Vin_5Vout_driver
+    ldo = new LDO_5V_to_3V3
+    mcu = new ESP32_C3_MINI_driver
+    fan_controller = new Microchip_EMC2101_driver
+    fan_pwm_buffer = new SN74LVC2G34DBVRUMW_driver
+    led_buffer = new SN74LVC2G34DBVRUMW_driver
+    fan_connectors = new Fan_4p_Connector[8]
+    leds = new AddressableLED_driver[4]
+    qwiic_connector = new QwiicHorizontal_driver
+    tp_vbus = new TestPoint[2]
+    tp_5v = new TestPoint[2]
+    tp_3v3 = new TestPoint[2]
+    logo = new FaebrykLogo_8x9mm
+    ntc_interfaces = new _NTC_Interface[2]
+
+    # internal interfaces
+    _vbus = new ElectricPower
+    _5v = new ElectricPower
+    _3v3 = new ElectricPower
+    _buffered_fan_interface = new Fan_Interface
+
+    # connections
+    usb_pd_power_sink.power ~ _vbus
+    _vbus ~> dcdc_converter ~> _5v
+    _5v ~> ldo.power_in; ldo.power_out ~ _3v3
+
+    _5v ~ led_buffer.power
+    _3v3 ~ mcu.power
+    _3v3 ~ qwiic_connector.power
+    _3v3 ~ fan_controller.power
+    _3v3 ~ fan_pwm_buffer.power
+    _3v3 ~ ntc_interfaces[0].power
+    _3v3 ~ ntc_interfaces[1].power
+
+    mcu.i2c ~ qwiic_connector.i2c
+    mcu.i2c ~ fan_controller.i2c
+    mcu.usb.usb_if ~ usb_pd_power_sink.pd_trigger.usb_data
+    mcu.gpio[7] ~ led_buffer.logic_in[0]
+    mcu.gpio[0] ~ ntc_interfaces[0].output
+    mcu.gpio[1] ~ ntc_interfaces[1].output
+
+    for led in leds:
+        led.power ~ _5v
+        led.package -> SK6812_5050_RGBW
+    led_buffer.logic_out[0] ~> leds[0] ~> leds[1] ~> leds[2] ~> leds[3]
+
+    for fan_connector in fan_connectors:
+        #FIXME: fan_connector.fan_interface ~ _buffered_fan_interface # no ModuleInterface
+        fan_connector.fan_interface.power ~ _buffered_fan_interface.power
+        fan_connector.fan_interface.pwm ~ _buffered_fan_interface.pwm
+    fan_connectors[7].fan_interface.tach ~ _buffered_fan_interface.tach
+    
+    _vbus ~ _buffered_fan_interface.power
+    fan_controller.fan_interface.tach ~ _buffered_fan_interface.tach
+    fan_controller.fan_interface.pwm ~ fan_pwm_buffer.logic_in[0];
+    fan_pwm_buffer.logic_out[0] ~ _buffered_fan_interface.pwm
+
+    
+
+    tp_vbus[0].contact ~ _vbus.lv
+    tp_vbus[1].contact ~ _vbus.hv
+    tp_5v[0].contact ~ _5v.lv
+    tp_5v[1].contact ~ _5v.hv
+    tp_3v3[0].contact ~ _3v3.lv
+    tp_3v3[1].contact ~ _3v3.hv
+
+    # parameters
+    usb_pd_power_sink.pd_trigger.voltage_set_resistor.resistance = 24kohm +/- 1%
+    # 24kohm sets PD request voltage to 12V
+
+
+module _NTC_Interface:
+    """
+    Simple interface to connect an external NTC temperature sensor via a voltage divider
+    """
+    # external interface
+    power = new ElectricPower
+    output = new ElectricSignal
+
+    # components
+    header = new Male_2_54mm_1x2P_TH
+    resistor = new Resistor
+    capacitor = new Capacitor
+
+    # connections
+    header.p1 ~ power.lv
+    header.p2 ~> resistor ~> power.hv
+    header.p2 ~> capacitor ~> header.p1
+    header.p2 ~ output.line
+    output.reference ~ power
+
+    # parameters
+    resistor.resistance = 10kohm +/- 1%
+    resistor.package = "R0402"
+    capacitor.capacitance = 100nF +/- 10%
+    capacitor.package = "C0402"
